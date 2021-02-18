@@ -19,7 +19,7 @@ from fairseq.data import (
     ResamplingDataset,
     data_utils as fairseq_data_utils,
 )
-from fairseq.data.audio.audio_utils import get_fbank, get_waveform
+from fairseq.data.audio.audio_utils import get_fbank, get_waveform, get_speech_features
 from fairseq.data.audio.feature_transforms import CompositeAudioFeatureTransform
 
 
@@ -82,6 +82,19 @@ class S2TDataConfig(object):
         """The dimension of input features (per audio channel)"""
         return self.config.get("input_feat_per_channel", 80)
 
+
+    @property
+    def pitch(self) -> Dict:
+        """Pitch feature to be appended to filterbanks and MFCCs, returned
+        in a dictionary with tunable parameters."""
+        return self.config.get("pitch", {"use_pitch": False, "min_f0": 60, "max_f0": 400})
+
+    @property
+    def energy(self) -> Dict:
+        """Energy features to be appended to filterbanks and MFCCs, returned
+        in a dictionary with tunable parameters."""
+        return self.config.get("energy", {"use_energy": False})
+
     @property
     def input_channels(self):
         """The number of channels in the input audio"""
@@ -136,13 +149,29 @@ def read_from_uncompressed_zip(file_path, offset, file_size) -> bytes:
         data = f.read(file_size)
     return data
 
+def get_n_speech_features(data_cfg):
+    n_speech_features = 0
+    if data_cfg.pitch['use_pitch']:
+        n_speech_features += 1
+    if data_cfg.energy['use_energy']:
+        n_speech_features += 1
+    return n_speech_features
 
-def get_features_from_npy_or_audio(path):
+def get_features_from_npy_or_audio(path, data_cfg):
     ext = op.splitext(op.basename(path))[1]
     if ext not in {".npy", ".flac", ".wav"}:
         raise ValueError(f'Unsupported file format for "{path}"')
-    return np.load(path) if ext == ".npy" else get_fbank(path)
+    if ext == ".npy":
+        return np.load(path)
+    else:
+        features = get_fbank(path, data_cfg.input_feat_per_channel)
 
+        n_speech_features = get_n_speech_features(data_cfg)
+        if n_speech_features:
+            speech_features = get_speech_features(path, data_cfg, max_frames=len(features), n_speech_features=n_speech_features)
+            features = np.c_[features, speech_features]
+
+        return features
 
 def get_features_or_waveform_from_uncompressed_zip(
     path, byte_offset, byte_size, need_waveform=False
@@ -159,7 +188,7 @@ def get_features_or_waveform_from_uncompressed_zip(
     return features_or_waveform
 
 
-def get_features_or_waveform(path: str, need_waveform=False):
+def get_features_or_waveform(path: str, need_waveform=False, data_cfg=None):
     """Get speech features from .npy file or waveform from .wav/.flac file.
     The file may be inside an uncompressed ZIP file and is accessed via byte
     offset and length.
@@ -179,7 +208,7 @@ def get_features_or_waveform(path: str, need_waveform=False):
     if len(extra) == 0:
         if need_waveform:
             return get_waveform(_path)
-        return get_features_from_npy_or_audio(_path)
+        return get_features_from_npy_or_audio(_path, data_cfg)
     elif len(extra) == 2:
         extra = [int(i) for i in extra]
         features_or_waveform = get_features_or_waveform_from_uncompressed_zip(
@@ -294,7 +323,7 @@ class SpeechToTextDataset(FairseqDataset):
         self, index: int
     ) -> Tuple[int, torch.Tensor, Optional[torch.Tensor]]:
         source = get_features_or_waveform(
-            self.audio_paths[index], need_waveform=self.data_cfg.use_audio_input
+            self.audio_paths[index], need_waveform=self.data_cfg.use_audio_input, data_cfg=self.data_cfg
         )
         if self.feature_transforms is not None:
             assert not self.data_cfg.use_audio_input

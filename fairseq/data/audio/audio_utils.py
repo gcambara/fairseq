@@ -2,6 +2,9 @@ import os.path as op
 from typing import BinaryIO, Optional, Tuple, Union
 
 import numpy as np
+from scipy.interpolate import interp1d
+from scipy.ndimage.filters import uniform_filter1d
+import parselmouth
 
 
 def get_waveform(
@@ -83,3 +86,57 @@ def get_fbank(path_or_fp: Union[str, BinaryIO], n_bins=80) -> np.ndarray:
         )
 
     return features
+
+def get_speech_features(path_or_fp: Union[str, BinaryIO], data_cfg, max_frames, n_speech_features) -> np.ndarray:
+    sound = parselmouth.Sound(path_or_fp)
+
+    speech_features = np.empty(shape=(n_speech_features, max_frames))
+    feat_offset = 0
+    if data_cfg.pitch['use_pitch']:
+       pitch = get_pitch(sound, data_cfg.pitch['time_step'], data_cfg.pitch['min_f0'], data_cfg.pitch['max_f0'])
+       pitch = post_process_pitch(pitch, max_frames)
+       speech_features[feat_offset] = pitch
+       feat_offset += 1
+    return speech_features.transpose()
+
+def get_pitch(sound, time_step, min_f0, max_f0) -> np.ndarray:
+    pitch = sound.to_pitch(time_step, min_f0, max_f0)
+    pitch_values = pitch.selected_array['frequency']
+    return pitch_values
+
+def post_process_pitch(pitch, max_frames):
+    # Pad or trim pitch depending on the number of frames in the spectral features.
+    pitch = pad_trim(pitch, max_frames)
+
+    # Interpolate unvoiced regions.
+    x = np.arange(len(pitch))
+    idx = np.nonzero(pitch)
+
+    if np.count_nonzero(pitch):
+        # If boundaries of the pitch sequence have zero values, interpolate with first and last non-zero values.
+        first_nonzero_value, last_nonzero_value = pitch[idx][0], pitch[idx][-1]
+        f = interp1d(x[idx], pitch[idx], bounds_error=False, fill_value=(first_nonzero_value, last_nonzero_value))
+        pitch = f(x)
+
+        # Add a little noise to pitch values.
+        mean_noise = 0.0
+        std_noise = 0.5
+        noise = np.random.normal(mean_noise, std_noise, len(pitch))
+        pitch += noise
+
+    pitch = np.log(pitch + 1e-10)
+
+    # Apply mean substraction to smooth out unexpected peaks, with a window size of 151 frames, as suggested by Kaldi.
+    pitch = uniform_filter1d(pitch, size=151, mode='reflect')
+
+    return pitch
+
+def pad_trim(buffer, max_frames):
+    if len(buffer) < max_frames:
+        pad = max_frames - len(buffer)
+        buffer = np.concatenate((buffer, buffer[-pad:]), axis=0)
+    elif len(buffer) > max_frames:
+        trim = len(buffer) - max_frames
+        buffer = buffer[:-trim]
+
+    return buffer
