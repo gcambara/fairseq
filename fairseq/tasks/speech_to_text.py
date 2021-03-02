@@ -113,6 +113,10 @@ class SpeechToTextTask(LegacyFairseqTask):
             args.input_feat_per_channel += 1
         if self.data_cfg.pitch['use_delta_pitch']:
             args.input_feat_per_channel += 1
+        if self.data_cfg.voice_quality['use_jitter_local']:
+            args.input_feat_per_channel += 1
+        if self.data_cfg.voice_quality['use_shimmer_local']:
+            args.input_feat_per_channel += 1
         return super(SpeechToTextTask, self).build_model(args)
 
     def build_generator(

@@ -105,6 +105,18 @@ def get_speech_features(path_or_fp: Union[str, BinaryIO], data_cfg, max_frames, 
        if data_cfg.pitch['use_delta_pitch']:
             speech_features[feat_offset] = delta_pitch
             feat_offset += 1
+    
+    if data_cfg.voice_quality['use_jitter_local'] or data_cfg.voice_quality['use_shimmer_local']:
+       point_process = parselmouth.praat.call(sound, "To PointProcess (periodic, cc)", data_cfg.pitch['min_f0'], data_cfg.pitch['max_f0'])
+
+       if data_cfg.voice_quality['use_jitter_local']:
+            jitter_local = get_jitter(sound, point_process, max_frames, jitter_type="Get jitter (local)",  data_cfg=data_cfg)
+            speech_features[feat_offset] = jitter_local
+            feat_offset += 1
+       if data_cfg.voice_quality['use_shimmer_local']:
+            shimmer_local = get_shimmer(sound, point_process, max_frames, shimmer_type="Get shimmer (local)", data_cfg=data_cfg)
+            speech_features[feat_offset] = shimmer_local
+            feat_offset += 1
 
     return speech_features.transpose()
 
@@ -133,6 +145,71 @@ def post_process_pitch(pitch, max_frames):
     pov[nonzero_idx] = 1.0
 
     return pitch, pov, delta_pitch
+
+def get_jitter(sound, point_process, max_frames, jitter_type, data_cfg):
+    win_length = data_cfg.voice_quality['win_length']
+    win_hop = data_cfg.voice_quality['win_hop']
+    period_floor = data_cfg.voice_quality['period_floor']
+    period_ceiling = data_cfg.voice_quality['period_ceiling']
+    max_period_factor = data_cfg.voice_quality['max_period_factor']
+    filter_frames = data_cfg.voice_quality['filter_frames']
+    length = len(sound)/sound.get_sampling_frequency()
+    start_time_s = 0.0
+    end_time_s = start_time_s + win_length
+
+    jitter_list = []
+    while end_time_s <= length:
+        # Pass these variables in as data_cfg.
+        jitter = parselmouth.praat.call(point_process, jitter_type, start_time_s, end_time_s, period_floor, period_ceiling, max_period_factor)
+        jitter_list.append(jitter)
+        start_time_s += win_hop
+        end_time_s += win_hop
+
+    jitter_array = np.asarray(jitter_list)
+    jitter_array = pad_trim(jitter_array, max_frames)
+    # Set it as percentage.
+    jitter_array = jitter_array*100.0
+
+    # Handle NaNs, setting them to zeros and interpolating them.
+    jitter_array[np.isnan(jitter_array)] = 0.0
+    jitter_array, _ = interpolate_zeros(jitter_array)
+
+    jitter_array = uniform_filter1d(jitter_array, size=filter_frames, mode='reflect')
+
+    return jitter_array
+
+def get_shimmer(sound, point_process, max_frames, shimmer_type, data_cfg):
+    win_length = data_cfg.voice_quality['win_length']
+    win_hop = data_cfg.voice_quality['win_hop']
+    period_floor = data_cfg.voice_quality['period_floor']
+    period_ceiling = data_cfg.voice_quality['period_ceiling']
+    max_period_factor = data_cfg.voice_quality['max_period_factor']
+    max_amplitude_factor = data_cfg.voice_quality['max_amplitude_factor']
+    filter_frames = data_cfg.voice_quality['filter_frames']
+    length = len(sound)/sound.get_sampling_frequency()
+    start_time_s = 0.0
+    end_time_s = start_time_s + win_length
+
+    shimmer_list = []
+    while end_time_s <= length:
+        # Pass these variables in as data_cfg.
+        shimmer = parselmouth.praat.call([sound, point_process], shimmer_type, start_time_s, end_time_s, period_floor, period_ceiling, max_period_factor, max_amplitude_factor)
+        shimmer_list.append(shimmer)
+        start_time_s += win_hop
+        end_time_s += win_hop
+
+    shimmer_array = np.asarray(shimmer_list)
+    shimmer_array = pad_trim(shimmer_array, max_frames)
+    # Set it as percentage.
+    shimmer_array = shimmer_array*100.0
+
+    # Handle NaNs, setting them to zeros and interpolating them.
+    shimmer_array[np.isnan(shimmer_array)] = 0.0
+    shimmer_array, _ = interpolate_zeros(shimmer_array)
+
+    shimmer_array = uniform_filter1d(shimmer_array, size=filter_frames, mode='reflect')
+
+    return shimmer_array
 
 def interpolate_zeros(signal):
     '''Interpolates zero regions. Returns the interpolated signal and the non-zero indexes.'''

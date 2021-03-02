@@ -89,6 +89,12 @@ class S2TDataConfig(object):
         return self.config.get("pitch", {"use_pitch": False, "time_step": 0.01, "min_f0": 60, "max_f0": 400, "use_pov": False, "use_delta_pitch": False})
 
     @property
+    def voice_quality(self) -> Dict:
+        """Voice quality features to be appended to filterbanks and MFCCs, returned
+        in a dictionary with tunable parameters."""
+        return self.config.get("voice_quality", {"use_jitter_local": False, "use_shimmer_local": False})
+
+    @property
     def energy(self) -> Dict:
         """Energy features to be appended to filterbanks and MFCCs, returned
         in a dictionary with tunable parameters."""
@@ -155,6 +161,10 @@ def get_n_speech_features(data_cfg):
     if data_cfg.pitch['use_pov']:
         n_speech_features += 1
     if data_cfg.pitch['use_delta_pitch']:
+        n_speech_features += 1
+    if data_cfg.voice_quality['use_jitter_local']:
+        n_speech_features += 1
+    if data_cfg.voice_quality['use_shimmer_local']:
         n_speech_features += 1
     if data_cfg.energy['use_energy']:
         n_speech_features += 1
