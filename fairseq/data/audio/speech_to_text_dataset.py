@@ -82,12 +82,11 @@ class S2TDataConfig(object):
         """The dimension of input features (per audio channel)"""
         return self.config.get("input_feat_per_channel", 80)
 
-
     @property
     def pitch(self) -> Dict:
         """Pitch feature to be appended to filterbanks and MFCCs, returned
         in a dictionary with tunable parameters."""
-        return self.config.get("pitch", {"use_pitch": False, "min_f0": 60, "max_f0": 400})
+        return self.config.get("pitch", {"use_pitch": False, "time_step": 0.01, "min_f0": 60, "max_f0": 400, "use_pov": False, "use_delta_pitch": False})
 
     @property
     def energy(self) -> Dict:
@@ -152,6 +151,10 @@ def read_from_uncompressed_zip(file_path, offset, file_size) -> bytes:
 def get_n_speech_features(data_cfg):
     n_speech_features = 0
     if data_cfg.pitch['use_pitch']:
+        n_speech_features += 1
+    if data_cfg.pitch['use_pov']:
+        n_speech_features += 1
+    if data_cfg.pitch['use_delta_pitch']:
         n_speech_features += 1
     if data_cfg.energy['use_energy']:
         n_speech_features += 1

@@ -109,6 +109,10 @@ class SpeechToTextTask(LegacyFairseqTask):
         args.input_channels = self.data_cfg.input_channels
         if self.data_cfg.pitch['use_pitch']:
             args.input_feat_per_channel += 1
+        if self.data_cfg.pitch['use_pov']:
+            args.input_feat_per_channel += 1
+        if self.data_cfg.pitch['use_delta_pitch']:
+            args.input_feat_per_channel += 1
         return super(SpeechToTextTask, self).build_model(args)
 
     def build_generator(

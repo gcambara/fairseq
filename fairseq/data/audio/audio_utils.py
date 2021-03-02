@@ -4,8 +4,8 @@ from typing import BinaryIO, Optional, Tuple, Union
 import numpy as np
 from scipy.interpolate import interp1d
 from scipy.ndimage.filters import uniform_filter1d
+import librosa
 import parselmouth
-
 
 def get_waveform(
     path_or_fp: Union[str, BinaryIO], normalization=True
@@ -92,11 +92,20 @@ def get_speech_features(path_or_fp: Union[str, BinaryIO], data_cfg, max_frames, 
 
     speech_features = np.empty(shape=(n_speech_features, max_frames))
     feat_offset = 0
-    if data_cfg.pitch['use_pitch']:
+    if data_cfg.pitch['use_pitch'] or data_cfg.pitch['use_pov'] or data_cfg.pitch['use_delta_pitch']:
        pitch = get_pitch(sound, data_cfg.pitch['time_step'], data_cfg.pitch['min_f0'], data_cfg.pitch['max_f0'])
-       pitch = post_process_pitch(pitch, max_frames)
-       speech_features[feat_offset] = pitch
-       feat_offset += 1
+       pitch, pov, delta_pitch = post_process_pitch(pitch, max_frames)
+
+       if data_cfg.pitch['use_pitch']:
+            speech_features[feat_offset] = pitch
+            feat_offset += 1
+       if data_cfg.pitch['use_pov']:
+            speech_features[feat_offset] = pov
+            feat_offset += 1
+       if data_cfg.pitch['use_delta_pitch']:
+            speech_features[feat_offset] = delta_pitch
+            feat_offset += 1
+
     return speech_features.transpose()
 
 def get_pitch(sound, time_step, min_f0, max_f0) -> np.ndarray:
@@ -109,27 +118,40 @@ def post_process_pitch(pitch, max_frames):
     pitch = pad_trim(pitch, max_frames)
 
     # Interpolate unvoiced regions.
-    x = np.arange(len(pitch))
-    idx = np.nonzero(pitch)
-
-    if np.count_nonzero(pitch):
-        # If boundaries of the pitch sequence have zero values, interpolate with first and last non-zero values.
-        first_nonzero_value, last_nonzero_value = pitch[idx][0], pitch[idx][-1]
-        f = interp1d(x[idx], pitch[idx], bounds_error=False, fill_value=(first_nonzero_value, last_nonzero_value))
-        pitch = f(x)
-
-        # Add a little noise to pitch values.
-        mean_noise = 0.0
-        std_noise = 0.5
-        noise = np.random.normal(mean_noise, std_noise, len(pitch))
-        pitch += noise
+    pitch, nonzero_idx = interpolate_zeros(pitch)
 
     pitch = np.log(pitch + 1e-10)
+
+    # Compute delta pitch.
+    delta_pitch = librosa.feature.delta(pitch, order=1)
 
     # Apply mean substraction to smooth out unexpected peaks, with a window size of 151 frames, as suggested by Kaldi.
     pitch = uniform_filter1d(pitch, size=151, mode='reflect')
 
-    return pitch
+    # Get probability-of-voicing (POV) vector. Keep it between -1 and 1 for stability.
+    pov = np.full(pitch.shape, -1.0)
+    pov[nonzero_idx] = 1.0
+
+    return pitch, pov, delta_pitch
+
+def interpolate_zeros(signal):
+    '''Interpolates zero regions. Returns the interpolated signal and the non-zero indexes.'''
+    x = np.arange(len(signal))
+    idx = np.nonzero(signal)
+
+    if np.count_nonzero(signal):
+        # If boundaries of the signal sequence have zero values, interpolate with first and last non-zero values.
+        first_nonzero_value, last_nonzero_value = signal[idx][0], signal[idx][-1]
+        f = interp1d(x[idx], signal[idx], bounds_error=False, fill_value=(first_nonzero_value, last_nonzero_value))
+        signal = f(x)
+
+        # Add a little noise to signal values.
+        mean_noise = 0.0
+        std_noise = 0.5
+        noise = np.random.normal(mean_noise, std_noise, len(signal))
+        signal += noise
+
+    return signal, idx
 
 def pad_trim(buffer, max_frames):
     if len(buffer) < max_frames:
