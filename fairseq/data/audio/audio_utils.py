@@ -105,7 +105,7 @@ def get_speech_features(path_or_fp: Union[str, BinaryIO], data_cfg, max_frames, 
        if data_cfg.pitch['use_delta_pitch']:
             speech_features[feat_offset] = delta_pitch
             feat_offset += 1
-    
+
     if data_cfg.voice_quality['use_jitter_local'] or data_cfg.voice_quality['use_shimmer_local']:
        point_process = parselmouth.praat.call(sound, "To PointProcess (periodic, cc)", data_cfg.pitch['min_f0'], data_cfg.pitch['max_f0'])
 
@@ -155,22 +155,18 @@ def get_jitter(sound, point_process, max_frames, jitter_type, data_cfg):
     filter_frames = data_cfg.voice_quality['filter_frames']
     length = len(sound)/sound.get_sampling_frequency()
     start_time_s = 0.0
-    end_time_s = start_time_s + win_length
 
-    jitter_list = []
-    while end_time_s <= length:
-        # Pass these variables in as data_cfg.
-        jitter = parselmouth.praat.call(point_process, jitter_type, start_time_s, end_time_s, period_floor, period_ceiling, max_period_factor)
-        jitter_list.append(jitter)
-        start_time_s += win_hop
-        end_time_s += win_hop
+    start_times = np.arange(start_time_s, length - win_length, win_hop)
+    end_times = np.arange(start_time_s + win_length, length, win_hop)
+    times = np.column_stack((start_times, end_times)).tolist()
+
+    get_segment_jitter = lambda times : parselmouth.praat.call(point_process, jitter_type, times[0], times[1], period_floor, period_ceiling, max_period_factor)
+    jitter_list = list(map(get_segment_jitter, times))
 
     jitter_array = np.asarray(jitter_list)
     jitter_array = pad_trim(jitter_array, max_frames)
-    # Set it as percentage.
     jitter_array = jitter_array*100.0
 
-    # Handle NaNs, setting them to zeros and interpolating them.
     jitter_array[np.isnan(jitter_array)] = 0.0
     jitter_array, _ = interpolate_zeros(jitter_array)
 
@@ -188,22 +184,18 @@ def get_shimmer(sound, point_process, max_frames, shimmer_type, data_cfg):
     filter_frames = data_cfg.voice_quality['filter_frames']
     length = len(sound)/sound.get_sampling_frequency()
     start_time_s = 0.0
-    end_time_s = start_time_s + win_length
 
-    shimmer_list = []
-    while end_time_s <= length:
-        # Pass these variables in as data_cfg.
-        shimmer = parselmouth.praat.call([sound, point_process], shimmer_type, start_time_s, end_time_s, period_floor, period_ceiling, max_period_factor, max_amplitude_factor)
-        shimmer_list.append(shimmer)
-        start_time_s += win_hop
-        end_time_s += win_hop
+    start_times = np.arange(start_time_s, length - win_length, win_hop)
+    end_times = np.arange(start_time_s + win_length, length, win_hop)
+    times = np.column_stack((start_times, end_times)).tolist()
+
+    get_segment_shimmer = lambda times : parselmouth.praat.call(point_process, shimmer_type, times[0], times[1], period_floor, period_ceiling, max_period_factor, max_amplitude_factor)
+    shimmer_list = list(map(get_segment_shimmer, times))
 
     shimmer_array = np.asarray(shimmer_list)
     shimmer_array = pad_trim(shimmer_array, max_frames)
-    # Set it as percentage.
     shimmer_array = shimmer_array*100.0
 
-    # Handle NaNs, setting them to zeros and interpolating them.
     shimmer_array[np.isnan(shimmer_array)] = 0.0
     shimmer_array, _ = interpolate_zeros(shimmer_array)
 
@@ -216,7 +208,7 @@ def interpolate_zeros(signal):
     x = np.arange(len(signal))
     idx = np.nonzero(signal)
 
-    if len(idx) > 1:
+    if np.count_nonzero(signal) and len(idx[0]) > 1:
         # If boundaries of the signal sequence have zero values, interpolate with first and last non-zero values.
         first_nonzero_value, last_nonzero_value = signal[idx][0], signal[idx][-1]
         f = interp1d(x[idx], signal[idx], bounds_error=False, fill_value=(first_nonzero_value, last_nonzero_value))
