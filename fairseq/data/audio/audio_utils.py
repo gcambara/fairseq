@@ -118,6 +118,11 @@ def get_speech_features(path_or_fp: Union[str, BinaryIO], data_cfg, max_frames, 
             speech_features[feat_offset] = shimmer_local
             feat_offset += 1
 
+    if data_cfg.pitch['random_feats'] > 0:
+        for i in range(data_cfg.pitch['random_feats']):
+            speech_features[feat_offset] = np.random.rand(max_frames)*10.0
+            feat_offset += 1
+
     return speech_features.transpose()
 
 def get_pitch(sound, time_step, min_f0, max_f0) -> np.ndarray:
@@ -189,7 +194,7 @@ def get_shimmer(sound, point_process, max_frames, shimmer_type, data_cfg):
     end_times = np.arange(start_time_s + win_length, length, win_hop)
     times = np.column_stack((start_times, end_times)).tolist()
 
-    get_segment_shimmer = lambda times : parselmouth.praat.call(point_process, shimmer_type, times[0], times[1], period_floor, period_ceiling, max_period_factor, max_amplitude_factor)
+    get_segment_shimmer = lambda times : parselmouth.praat.call([sound, point_process], shimmer_type, times[0], times[1], period_floor, period_ceiling, max_period_factor, max_amplitude_factor)
     shimmer_list = list(map(get_segment_shimmer, times))
 
     shimmer_array = np.asarray(shimmer_list)

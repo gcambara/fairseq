@@ -117,6 +117,9 @@ class SpeechToTextTask(LegacyFairseqTask):
             args.input_feat_per_channel += 1
         if self.data_cfg.voice_quality['use_shimmer_local']:
             args.input_feat_per_channel += 1
+        if self.data_cfg.pitch['random_feats'] > 0:
+            args.input_feat_per_channel += self.data_cfg.pitch['random_feats']
+
         return super(SpeechToTextTask, self).build_model(args)
 
     def build_generator(

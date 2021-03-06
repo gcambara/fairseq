@@ -86,7 +86,7 @@ class S2TDataConfig(object):
     def pitch(self) -> Dict:
         """Pitch feature to be appended to filterbanks and MFCCs, returned
         in a dictionary with tunable parameters."""
-        return self.config.get("pitch", {"use_pitch": False, "time_step": 0.01, "min_f0": 60, "max_f0": 400, "use_pov": False, "use_delta_pitch": False})
+        return self.config.get("pitch", {"use_pitch": False, "time_step": 0.01, "min_f0": 60, "max_f0": 400, "use_pov": False, "use_delta_pitch": False, "random_feats": -1})
 
     @property
     def voice_quality(self) -> Dict:
@@ -168,6 +168,8 @@ def get_n_speech_features(data_cfg):
         n_speech_features += 1
     if data_cfg.energy['use_energy']:
         n_speech_features += 1
+    if data_cfg.pitch['random_feats'] > 0:
+        n_speech_features += data_cfg.pitch['random_feats']
     return n_speech_features
 
 def get_features_from_npy_or_audio(path, data_cfg):
