@@ -216,7 +216,7 @@ def interpolate_zeros(signal):
     x = np.arange(len(signal))
     idx = np.nonzero(signal)
 
-    if np.count_nonzero(signal):
+    if len(idx) > 1:
         # If boundaries of the signal sequence have zero values, interpolate with first and last non-zero values.
         first_nonzero_value, last_nonzero_value = signal[idx][0], signal[idx][-1]
         f = interp1d(x[idx], signal[idx], bounds_error=False, fill_value=(first_nonzero_value, last_nonzero_value))
