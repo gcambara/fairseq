@@ -177,16 +177,16 @@ def get_features_from_npy_or_audio(path, data_cfg):
     if ext not in {".npy", ".flac", ".wav"}:
         raise ValueError(f'Unsupported file format for "{path}"')
     if ext == ".npy":
-        return np.load(path)
+        features = np.load(path)
     else:
         features = get_fbank(path, data_cfg.input_feat_per_channel)
 
-        n_speech_features = get_n_speech_features(data_cfg)
-        if n_speech_features:
-            speech_features = get_speech_features(path, data_cfg, max_frames=len(features), n_speech_features=n_speech_features)
-            features = np.c_[features, speech_features]
+    n_speech_features = get_n_speech_features(data_cfg)
+    if n_speech_features:
+        speech_features = get_speech_features(path, data_cfg, max_frames=len(features), n_speech_features=n_speech_features)
+        features = np.c_[features, speech_features]
 
-        return features
+    return features
 
 def get_features_or_waveform_from_uncompressed_zip(
     path, byte_offset, byte_size, need_waveform=False

@@ -4,6 +4,7 @@
 # This source code is licensed under the MIT license found in the
 # LICENSE file in the root directory of this source tree.
 
+import os
 import csv
 from pathlib import Path
 import zipfile
@@ -14,7 +15,7 @@ from typing import Any, Dict, List, Optional, Union
 import numpy as np
 import pandas as pd
 import sentencepiece as sp
-from fairseq.data.audio.audio_utils import _get_kaldi_fbank, _get_torchaudio_fbank
+from fairseq.data.audio.audio_utils import _get_kaldi_fbank, _get_torchaudio_fbank, get_speech_features, get_fbank
 from tqdm import tqdm
 
 
@@ -63,6 +64,43 @@ def gen_vocab(
     with open(output_path_prefix.as_posix() + ".txt", "w") as f_out:
         for _, s in sorted(vocab.items(), key=lambda x: x[0]):
             f_out.write(f"{s} 1\n")
+
+def extract_speech_features(
+    output_path,
+    data_cfg,
+    n_speech_features,
+    wav_path,
+    sample_id,
+    tgt_text,
+    speaker,
+):
+    assert n_speech_features == 5, "Current script is prepared to extract all 5 features (pitch, pov, delta, jitter, shimmer) at the same time!"
+    fbanks = get_fbank(wav_path, n_bins=13)
+    speech_features = get_speech_features(wav_path, data_cfg, max_frames=len(fbanks), n_speech_features=n_speech_features)
+    assert speech_features.shape[1] == n_speech_features, "The number of extracted features is not equal to the number of features required in the config file!"
+
+    pitch_path = os.path.join(output_path, 'pitch')
+    pov_path = os.path.join(output_path, 'pov')
+    delta_pitch_path = os.path.join(output_path, 'delta_pitch')
+    jitter_local_path = os.path.join(output_path, 'jitter_local')
+    shimmer_local_path = os.path.join(output_path, 'shimmer_local')
+
+    os.makedirs(pitch_path, exist_ok=True)
+    os.makedirs(pov_path, exist_ok=True)
+    os.makedirs(delta_pitch_path, exist_ok=True)
+    os.makedirs(jitter_local_path, exist_ok=True)
+    os.makedirs(shimmer_local_path, exist_ok=True)
+
+    file_name = f"{os.path.basename(wav_path).split('.')[0]}.npy"
+    pitch_offset, pov_offset, delta_pitch_offset, jitter_local_offset, shimmer_local_offset = 0, 1, 2, 3, 4
+    np.save(os.path.join(pitch_path, file_name), speech_features[:,pitch_offset])
+    np.save(os.path.join(pov_path, file_name), speech_features[:,pov_offset])
+    np.save(os.path.join(delta_pitch_path, file_name), speech_features[:,delta_pitch_offset])
+    np.save(os.path.join(jitter_local_path, file_name), speech_features[:,jitter_local_offset])
+    np.save(os.path.join(shimmer_local_path, file_name), speech_features[:,shimmer_local_offset])
+
+    return fbanks
+
 
 
 def extract_fbank_features(

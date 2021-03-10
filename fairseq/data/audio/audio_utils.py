@@ -93,28 +93,46 @@ def get_speech_features(path_or_fp: Union[str, BinaryIO], data_cfg, max_frames, 
     speech_features = np.empty(shape=(n_speech_features, max_frames))
     feat_offset = 0
     if data_cfg.pitch['use_pitch'] or data_cfg.pitch['use_pov'] or data_cfg.pitch['use_delta_pitch']:
-       pitch = get_pitch(sound, data_cfg.pitch['time_step'], data_cfg.pitch['min_f0'], data_cfg.pitch['max_f0'])
-       pitch, pov, delta_pitch = post_process_pitch(pitch, max_frames)
+        if data_cfg.pitch['pitch_path'] or data_cfg.pitch['pov_path'] or data_cfg.pitch['delta_pitch_path']:
+            pass
+        else:
+            pitch = get_pitch(sound, data_cfg.pitch['time_step'], data_cfg.pitch['min_f0'], data_cfg.pitch['max_f0'])
+            pitch, pov, delta_pitch = post_process_pitch(pitch, max_frames)
 
-       if data_cfg.pitch['use_pitch']:
+        if data_cfg.pitch['use_pitch']:
+            if data_cfg.pitch['pitch_path']:
+                pitch = get_feature_from_npy(data_cfg.pitch['pitch_path'], path_or_fp)
             speech_features[feat_offset] = pitch
             feat_offset += 1
-       if data_cfg.pitch['use_pov']:
+        if data_cfg.pitch['use_pov']:
+            if data_cfg.pitch['pov_path']:
+                pov = get_feature_from_npy(data_cfg.pitch['pov_path'], path_or_fp)
             speech_features[feat_offset] = pov
             feat_offset += 1
-       if data_cfg.pitch['use_delta_pitch']:
+        if data_cfg.pitch['use_delta_pitch']:
+            if data_cfg.pitch['delta_pitch_path']:
+                delta_pitch = get_feature_from_npy(data_cfg.pitch['delta_pitch_path'], path_or_fp)
             speech_features[feat_offset] = delta_pitch
             feat_offset += 1
 
     if data_cfg.voice_quality['use_jitter_local'] or data_cfg.voice_quality['use_shimmer_local']:
-       point_process = parselmouth.praat.call(sound, "To PointProcess (periodic, cc)", data_cfg.pitch['min_f0'], data_cfg.pitch['max_f0'])
+        if data_cfg.voice_quality['jitter_local_path'] or data_cfg.voice_quality['shimmer_local_path']:
+            pass
+        else:
+            point_process = parselmouth.praat.call(sound, "To PointProcess (periodic, cc)", data_cfg.pitch['min_f0'], data_cfg.pitch['max_f0'])
 
-       if data_cfg.voice_quality['use_jitter_local']:
-            jitter_local = get_jitter(sound, point_process, max_frames, jitter_type="Get jitter (local)",  data_cfg=data_cfg)
+        if data_cfg.voice_quality['use_jitter_local']:
+            if data_cfg.voice_quality['jitter_local_path']:
+                jitter_local = get_feature_from_npy(data_cfg.voice_quality['jitter_local_path'], path_or_fp)
+            else:
+                jitter_local = get_jitter(sound, point_process, max_frames, jitter_type="Get jitter (local)",  data_cfg=data_cfg)
             speech_features[feat_offset] = jitter_local
             feat_offset += 1
-       if data_cfg.voice_quality['use_shimmer_local']:
-            shimmer_local = get_shimmer(sound, point_process, max_frames, shimmer_type="Get shimmer (local)", data_cfg=data_cfg)
+        if data_cfg.voice_quality['use_shimmer_local']:
+            if data_cfg.voice_quality['shimmer_local_path']:
+                shimmer_local = get_feature_from_npy(data_cfg.voice_quality['shimmer_local_path'], path_or_fp)
+            else:
+                shimmer_local = get_shimmer(sound, point_process, max_frames, shimmer_type="Get shimmer (local)", data_cfg=data_cfg)
             speech_features[feat_offset] = shimmer_local
             feat_offset += 1
 
@@ -124,6 +142,13 @@ def get_speech_features(path_or_fp: Union[str, BinaryIO], data_cfg, max_frames, 
             feat_offset += 1
 
     return speech_features.transpose()
+
+def get_feature_from_npy(base_path, audio_path):
+    """Given a base path and the file name from the audio path, 
+    it reads the feature stored in the .npy file."""
+    file_name = f"{op.basename(audio_path).split('.')[0]}.npy"
+    npy_path = op.join(base_path, file_name)
+    return np.load(npy_path)
 
 def get_pitch(sound, time_step, min_f0, max_f0) -> np.ndarray:
     pitch = sound.to_pitch(time_step, min_f0, max_f0)
