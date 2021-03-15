@@ -20,7 +20,7 @@ from fairseq.modules import (
     PositionalEmbedding,
     TransformerEncoderLayer,
 )
-from torch import Tensor
+from torch import Tensor, cat
 
 
 logger = logging.getLogger(__name__)
@@ -275,12 +275,30 @@ class S2TTransformerEncoder(FairseqEncoder):
             self.embed_scale = 1.0
         self.padding_idx = 1
 
-        self.subsample = Conv1dSubsampler(
-            args.input_feat_per_channel * args.input_channels,
-            args.conv_channels,
-            args.encoder_embed_dim,
-            [int(k) for k in args.conv_kernel_sizes.split(",")],
-        )
+        self.conv_vq_feats = args.conv_vq_feats
+        if self.conv_vq_feats <= 0:
+            self.subsample = Conv1dSubsampler(
+                args.input_feat_per_channel * args.input_channels,
+                args.conv_channels,
+                args.encoder_embed_dim,
+                [int(k) for k in args.conv_kernel_sizes.split(",")],
+            )
+        else:
+            spectral_feats_per_channel = 40
+            vq_feats_per_channel = args.input_feat_per_channel - spectral_feats_per_channel
+            self.subsample = Conv1dSubsampler(
+                spectral_feats_per_channel * args.input_channels,
+                args.conv_channels,
+                args.conv_spectral_feats,
+                [int(k) for k in args.conv_kernel_sizes.split(",")],
+            )
+
+            self.subsample_vq = Conv1dSubsampler(
+                vq_feats_per_channel * args.input_channels,
+                args.conv_channels // 2,
+                args.conv_vq_feats,
+                [int(k) for k in args.conv_kernel_sizes.split(",")],
+            )
 
         self.embed_positions = PositionalEmbedding(
             args.max_source_positions, args.encoder_embed_dim, self.padding_idx
@@ -295,7 +313,15 @@ class S2TTransformerEncoder(FairseqEncoder):
             self.layer_norm = None
 
     def forward(self, src_tokens, src_lengths):
-        x, input_lengths = self.subsample(src_tokens, src_lengths)
+        if self.conv_vq_feats <= 0:
+            x, input_lengths = self.subsample(src_tokens, src_lengths)
+        else:
+            src_spectral = src_tokens[:,:,:40]
+            src_vq = src_tokens[:,:,40:]
+            x_spectral, input_lengths = self.subsample(src_spectral, src_lengths)
+            x_vq, _ = self.subsample_vq(src_vq, src_lengths)
+            x = cat((x_spectral, x_vq), 2)
+
         x = self.embed_scale * x
 
         encoder_padding_mask = lengths_to_padding_mask(input_lengths)
@@ -376,6 +402,8 @@ def base_architecture(args):
     # Convolutional subsampler
     args.conv_kernel_sizes = getattr(args, "conv_kernel_sizes", "5,5")
     args.conv_channels = getattr(args, "conv_channels", 1024)
+    args.conv_spectral_feats = getattr(args, "conv_spectral_feats", 512)
+    args.conv_vq_feats = getattr(args, "conv_vq_feats", -1)
     # Transformer
     args.encoder_embed_dim = getattr(args, "encoder_embed_dim", 512)
     args.encoder_ffn_embed_dim = getattr(args, "encoder_ffn_embed_dim", 2048)
@@ -411,6 +439,17 @@ def base_architecture(args):
     args.no_scale_embedding = getattr(args, "no_scale_embedding", False)
     args.quant_noise_pq = getattr(args, "quant_noise_pq", 0)
 
+
+@register_model_architecture("s2t_transformer", "s2t_transformer_s_vq")
+def s2t_transformer_s_vq(args):
+    args.conv_spectral_feats = getattr(args, "conv_spectral_feats", 192)
+    args.conv_vq_feats = getattr(args, "conv_vq_feats", 64)
+    args.encoder_embed_dim = getattr(args, "encoder_embed_dim", 256)
+    args.encoder_ffn_embed_dim = getattr(args, "encoder_ffn_embed_dim", 256 * 8)
+    args.encoder_attention_heads = getattr(args, "encoder_attention_heads", 4)
+    args.decoder_attention_heads = getattr(args, "decoder_attention_heads", 4)
+    args.dropout = getattr(args, "dropout", 0.1)
+    base_architecture(args)
 
 @register_model_architecture("s2t_transformer", "s2t_transformer_s")
 def s2t_transformer_s(args):
